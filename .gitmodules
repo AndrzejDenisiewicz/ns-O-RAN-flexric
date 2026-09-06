@@ -3,4 +3,4 @@
 	url = https://github.com/MinaYonan123/e2sim-kpmv3.git
 [submodule "mmwave-LENA-oran"]
 	path = mmwave-LENA-oran
-	url = https://github.com/MinaYonan123/mmwave-LENA-oran.git
+	url = https://github.com/AndrzejDenisiewicz/mmwave-LENA-oran.git
