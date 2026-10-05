@@ -177,3 +177,64 @@ The CCC v06.00 service model was implemented from scratch as part of this projec
 - [README — Platform Overview](../README.md)
 - [Energy Saving xApp](xapp-energy-saving.md)
 - [LENA Module Reporting Parameters](LENA_MODEL_REPORTING_PARAMETERS.md)
+
+## Validation Status
+
+The completed validation builds the simulator and runs identical one-cell,
+one-UE offline cases for `explicit-rejection`, `metadata-preserving`, and
+`legacy-compatibility`. With FlexRIC's `emu_agent_gnb`, the live smoke test
+registered one E2 node, completed E42 setup, subscribed to both KPM report
+styles, received indications, emitted an antenna-state intent, and deleted
+both subscriptions cleanly. The run used dry-run mode, so no CCC antenna-mask
+application or RF state change is claimed.
+
+## `rf_reconfiguration_xapp`
+
+The shared observation and decision executable is built from the FlexRIC
+checkout with:
+
+```sh
+cmake --build build --target rf_reconfiguration_xapp
+```
+
+It discovers KPM report styles, subscribes to each selected E2 node, logs
+normalized indications, and emits a typed antenna-state intent after applying
+hysteresis and cooldown. The default mode is `kpm-first` and dry-run; no
+control protocol is claimed or sent by default.
+
+The decision engine can be configured without changing scenario inputs:
+
+- `RF_XAPP_POWER_THRESHOLD` — decision threshold, default `0`.
+- `RF_XAPP_HYSTERESIS` — dead-band around the threshold, default `1`.
+- `RF_XAPP_COOLDOWN_MS` — minimum time between state changes, default `5000`.
+- `RF_XAPP_DRY_RUN` — keep intents audit-only, default `true`.
+- `RF_XAPP_NODE_INDEX` — restrict subscriptions to one discovered node index.
+- `RF_XAPP_TRANSPORT` — `kpm-first`, `native-ccc`, or `rc-compatibility`.
+
+`native-ccc` currently reports `native-ccc-unavailable` because this FlexRIC
+checkout has no CCC encoder/API. `rc-compatibility` reports that the typed
+intent was retained without claiming CCC fidelity; these diagnostics are the
+baseline for the transport-adapter evaluation.
+
+### Transport evaluation
+
+The same executable was built once and exercised with each transport setting:
+
+| Variant | Observation path | Control result | Status |
+| --- | --- | --- | --- |
+| `kpm-first` | KPM subscription and audit log | No control sent | Recommended milestone |
+| `native-ccc` | KPM subscription and audit log | Explicit `native-ccc-unavailable` diagnostic | Blocked by missing FlexRIC CCC API |
+| `rc-compatibility` | KPM subscription and audit log | Typed intent retained; no CCC claim | Adapter still required |
+
+The live evidence used the same target and scenario-independent configuration
+with `nearRT-RIC`, `emu_agent_gnb`, and an eight-second xApp observation window.
+The xApp was stopped by the planned timeout after clean subscription teardown;
+the registered node and received KPM indications were confirmed in the RIC,
+agent, and xApp logs. The build result is reproducible with `UNIT_TEST=FALSE`
+and the target `rf_reconfiguration_xapp`.
+
+`kpm-first` is selected for the next validation milestone because it provides
+the complete observation, threshold, hysteresis, cooldown, node-filter, and
+audit path without misrepresenting either RC compatibility or native CCC
+interoperability. Native CCC remains preferred only if a future FlexRIC
+service-model/API addition is implemented and reaches the simulator callback.

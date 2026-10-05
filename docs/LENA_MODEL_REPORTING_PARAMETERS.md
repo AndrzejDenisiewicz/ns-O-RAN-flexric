@@ -218,4 +218,82 @@ These are available in the O-RAN fork and used by CCC/GUI but were not separate 
 
 ---
 
-*Validated against 5G-LENA NR module in `ns-O-RAN-flexric/mmwave-LENA-oran`. No code was modified during this validation.*
+*Validated against the modified 5G-LENA NR module in `ns-O-RAN-flexric/mmwave-LENA-oran`.*
+
+## Translator mapping inventory
+
+The common NR/O-RAN translator records the source layer, unit, reporting interval,
+and derivation status before a policy decides how to expose an unmappable value.
+
+| Target field/control | Simulator source | Unit | Reporting window | Status |
+| --- | --- | --- | --- | --- |
+| `OCuUpContainerValues.m_pDCPBytesDL` | native PDCP byte counter, when available | bytes | KPM interval | native |
+| `OCuUpContainerValues.m_pDCPBytesUL` | native PDCP byte counter, when available | bytes | KPM interval | native |
+| `RLC.DL.TxBytes` | `NrBearerStatsCalculator::GetDlTxData()` | bytes | stats epoch/KPM interval | derived-labelled |
+| `RLC.UL.TxBytes` | corresponding NR RLC UL counter | bytes | stats epoch/KPM interval | derived-labelled |
+| port power command | CCC `O-NESPolicy.antennaMask` | normalized `[0,1]` | control event | validated control |
+
+The translator rejects empty, malformed, or wrong-length antenna masks and emits
+structured diagnostics for unsupported CCC attributes and unavailable native PDCP
+counters. Generated ASN.1 model classes remain unchanged.
+
+### Explicit-rejection policy
+
+`NrGnbNetDevice::SendKpmIndication()` uses `NrMappingPolicy::ExplicitRejection`.
+When native PDCP counters are unavailable, the translator leaves the CU-UP PM
+container unset and reports `UNMAPPABLE_PDCP_COUNTER`; it never places RLC values
+in PDCP-labelled fields. CCC masks are accepted only when they contain binary
+port values (whitespace is ignored), are non-empty, and satisfy the requested
+dimension when one is supplied.
+
+### Comparable policy variants
+
+The `KpmMappingPolicy` device attribute selects the same translator contract for
+each evaluation variant:
+
+| Attribute value | Unmappable PDCP value | Diagnostic behavior |
+| --- | --- | --- |
+| `explicit-rejection` | omit PM container value | rejected diagnostic |
+| `metadata-preserving` | expose explicitly named `RLC.*` cell measurements | source/layer diagnostic |
+| `legacy-compatibility` | retain consumer-facing PDCP fields, using source values or zero | warning diagnostic |
+
+CCC parsing and port-power application are identical for all three values.
+
+### Comparison result
+
+| Policy | Semantic correctness | Consumer compatibility | Observability | Migration cost |
+| --- | --- | --- | --- | --- |
+| Explicit rejection | highest; no mislabeled PDCP values | lowest when a PM container is required | rejected diagnostics | medium |
+| Metadata-preserving | high; source and derivation remain visible | medium; depends on cell-measurement consumers | highest | medium |
+| Legacy compatibility | lowest for layer fidelity | highest for existing field consumers | warnings and mapping metadata | lowest |
+
+The implementation recommendation is **metadata-preserving** for deployments
+whose consumers can read named cell measurements, with explicit rejection as the
+safe fallback when they cannot. Legacy compatibility remains available for
+existing consumers that require the historical PDCP-labelled fields, but should
+be treated as a migration mode because it is not layer-faithful.
+
+### Validation status
+
+- The core header collision was removed by renaming the ns-3 attribute header to
+  `src/core/model/ns3-string.h`; clean generation now creates
+  `build/include/ns3/ns3-string.h`, and no source include references the old
+  path.
+- `git diff --check` passes and the core library compiles and links.
+- The complete `core;nr;oran-interface` build now succeeds after renaming the
+  ns-3 assertion header to `src/core/model/ns3-assert.h` and adding explicit
+  standard `<cassert>` includes to O-RAN assertion users.
+- Eigen was supplied through `EIGEN3_INCLUDE_DIR`, the clean `cmake-cache`
+  configuration reports `NS3_EIGEN=ON`, and `libcore`, `libnr`,
+  `oran-interface`, and `scratch_RF_Reconfiguration` all built successfully.
+- Identical 0.5-second one-cell/one-UE file-logging runs completed for
+  `explicit-rejection`, `metadata-preserving`, and `legacy-compatibility`; all
+  reached E2 registration, UE reporting, and normal simulation completion.
+- The FlexRIC build now produces `nearRT-RIC` and `rf_reconfiguration_xapp`.
+  A live startup check reaches E42 setup and receives RIC responses, but the
+  validation runtime has no registered E2 node; therefore no live KPM
+  indication, antenna-mask control, or RF state change is claimed.
+- The available evidence selects `kpm-first` as the safe transport milestone:
+  it preserves normalized KPM observation and audit output without claiming
+  native CCC or RC interoperability that the current FlexRIC checkout cannot
+  encode.
