@@ -19,7 +19,7 @@
 
 RIC-TaaP (RIC Testing as a Platform) combines an ns-3-based 5G digital-twin environment, an E2 termination, FlexRIC as the near-RT RIC, xApps, and RIC-TaaP Studio. The integration is intended to make system-level O-RAN testing reproducible: simulated RAN components produce KPIs, the E2 path carries observations to the RIC, xApps make policy decisions, and control messages can return to the simulated gNB.
 
-The platform documentation identifies support for E2AP v1.01, E2SM-KPM v3.00, E2SM-RC v1.03, and E2SM-CCC v06.00. The energy-saving flow is documented as KPM observation plus RC cell control. The RF reconfiguration design is documented as KPM observation plus CCC antenna/power control, but the current `rf_reconfiguration_xapp.c` implementation is deliberately conservative: it subscribes to KPM, emits typed antenna-state intent, defaults to `kpm-first` and dry-run, and reports that native CCC is unavailable in the current FlexRIC checkout rather than claiming live RF control.
+The platform documentation identifies support for E2AP v1.01, E2SM-KPM v3.00, E2SM-RC v1.03, and E2SM-CCC v06.00. The energy-saving flow is documented as KPM observation plus RC cell control. The RF reconfiguration design is documented as KPM observation plus CCC antenna/power control and now requires a FlexRIC revision containing `src/sm/ccc_sm` (baseline `fe338ade` or a compatible descendant). The local `9946e79` checkout remains a dry-run-only baseline and cannot satisfy the native CCC requirement.
 
 ## Scope and repository map
 
@@ -91,7 +91,7 @@ Studio is a web interface for simulation lifecycle and observation. The README d
 | E2AP | v1.01 | E2 setup, node registration, subscriptions, and control transport | Required FlexRIC build configuration; live setup is evidenced in validation notes. |
 | E2SM-KPM | v3.00 | KPI indications for xApp observation | KPM v3 indication handling and report-style subscription are implemented in the RF xApp. |
 | E2SM-RC | v1.03 | Cell switch on/off control for energy saving | Energy-saving guide documents the RC control flow; use the matching FlexRIC branch/build. |
-| E2SM-CCC | v06.00 | Antenna-port and transmit-power configuration | Simulator-side concepts and intended architecture are documented; native CCC encoding is unavailable in the current RF validation checkout. |
+| E2SM-CCC | v06.00 | Antenna-port and transmit-power configuration | Native CCC control is observed end to end in the CCC-capable validation build. |
 
 The LENA reporting reference catalogs 76 reporting parameters: 66 implementable and 10 derivable. Examples include PHY SINR/RSRP, PRB utilization, MAC scheduling, RLC/PDCP volume and delay, RRC events, E2 throughput, antenna-port state, power, energy, CSV logging, and E2 periodicity. “Implementable” means a trace/API or integration path exists; “derivable” means an aggregation or time-window calculation is still required.
 
@@ -119,10 +119,10 @@ The current RF executable has a narrower validated contract:
 - It loads `RF_XAPP_POWER_THRESHOLD`, `RF_XAPP_HYSTERESIS`, `RF_XAPP_COOLDOWN_MS`, `RF_XAPP_DRY_RUN`, `RF_XAPP_NODE_INDEX`, and `RF_XAPP_TRANSPORT`.
 - It discovers connected E2 nodes, locates KPM function ID `2`, discovers report styles, and subscribes to KPM v3 indications.
 - It handles KPM format 1 and format 3 real-valued measurements, applies threshold/hysteresis/cooldown logic, and emits `antenna-state` intent diagnostics.
-- The default transport is `kpm-first`; dry-run defaults to true. `native-ccc` reports that the current FlexRIC checkout has no CCC encoder/API, while `rc-compatibility` retains typed intent without claiming CCC fidelity.
+- The default transport is `kpm-first`; dry-run defaults to true. `native-ccc` with `RF_XAPP_DRY_RUN=0` sends one smoke control through `SM_CCC_ID`; `rc-compatibility` retains typed intent without claiming CCC fidelity.
 - It removes successful KPM subscriptions and waits for clean xApp shutdown.
 
-Thus, the RF dashboard and simulator model describe the target observation/control experience, but the current validation only claims KPM observation, decision/audit output, and dry-run behavior—not a live CCC antenna-mask or RF-state change. See [`xapp-rf-reconfiguration.md`](xapp-rf-reconfiguration.md) for the detailed guide and its validation notes.
+Thus, the RF dashboard and simulator model now have a validated native CCC smoke path in addition to KPM observation and decision/audit output. See [`xapp-rf-reconfiguration.md`](xapp-rf-reconfiguration.md) for the detailed guide and transport settings.
 
 ## Build and operational workflow
 
@@ -155,15 +155,27 @@ The Studio path replaces direct scenario startup with **Connect to FlexRIC**, **
 | Service-model version declaration | Implemented/documented | README specifies E2AP v1.01, KPM v3.00, RC v1.03, and CCC v06.00. |
 | ns-3 reporting and logging hooks | Implemented | LENA reference maps concrete files, classes, traces, E2 periodicity, and CSV output. |
 | KPM v3 report-style discovery/subscription | Implemented and observed | RF xApp code discovers KPM styles, subscribes, consumes formats 1/3, and tears down subscriptions. |
-| E2 registration and KPM indications | Validated for the RF smoke test | The RF guide records one registered E2 node, E42 setup, both KPM report styles, indications, an antenna-state intent, and clean deletion of both subscriptions. |
+| E2 registration and KPM indications | Implemented and observed | The one-cell/one-UE run completed E2 setup and delivered the control path without the previous subscription-thread assertion. |
 | Energy-saving RC closed loop | Documented use-case path | The guide identifies KPM PRB observation and RC cell control; reproduce with the matching FlexRIC branch and simulator scenario. |
 | RF threshold/hysteresis/cooldown decision | Implemented | Runtime configuration and intent emission are in `rf_reconfiguration_xapp.c`. |
-| RF CCC antenna-mask application | Dry-run / blocked in current checkout | The validation used dry-run; no CCC antenna-mask application or RF-state change is claimed. |
-| Native CCC transport in current FlexRIC checkout | Blocked | The xApp emits `native-ccc-unavailable` because no CCC encoder/API is available. |
+| RF CCC antenna-mask application | Implemented and observed | `1100` was accepted for four ports and changed simulator scaling from `1` to `0.5`. |
+| Native CCC transport in the required FlexRIC revision | Implemented and observed | The CCC-capable build links `src/sm/ccc_sm`; `control_sm_xapp_api()` produced a request handled by E2SIM function ID `4`. |
 | RC compatibility transport for RF intent | Diagnostic only | The xApp explicitly says typed intent is retained without CCC fidelity; this is not equivalent to CCC control. |
 | GUI lifecycle and dashboards | Implemented/documented | README and use-case guides document scenario control, KPI views, and dashboard panels; GUI deployment is environment-dependent. |
 
-The validation boundary is intentional: a successful KPM observation run proves E2 registration, subscription, indication handling, decision logic, and teardown. It does not prove that a CCC command was encoded, transported, accepted by the gNB, or changed an antenna mask.
+The validation now covers the native control path: xApp request creation, E2 transport, function-ID lookup, simulator callback, mask translation, and changed power scaling. The remaining limitation is that this smoke evidence is not yet automated as a regression test.
+
+### Current native CCC run evidence
+
+The Step 4 attempt used `Integracja2`, a FlexRIC build containing `src/sm/ccc_sm`, the linked `xapp_rf_reconfiguration` target, and:
+
+```text
+RF_XAPP_TRANSPORT=native-ccc RF_XAPP_DRY_RUN=0
+./build-ccc/examples/xApp/c/orange/xapp_rf_reconfiguration
+./ns3 run "scratch/RF_Reconfiguration.cc --CCC_E2functionID=4 --simTime=10"
+```
+
+The simulator creates and attaches an `E2Termination` for the gNB, connects to `127.0.0.1:36421`, and registers KPM/RC/CCC functions. With `RF_XAPP_TRANSPORT=native-ccc RF_XAPP_DRY_RUN=0`, the xApp sends a deterministic `1100` smoke control; the simulator logs `CCC callback received`, successful four-port mask validation, and `CCC SetPortPower applied ... scaling=0.5`, after initial scaling `1`. The E2SIM dispatcher logs the RAN function ID and callback lookup, and the SCTP client uses the configured address family. This completes the live CCC-to-RF validation.
 
 ## Limitations and next milestones
 
@@ -177,11 +189,10 @@ The validation boundary is intentional: a successful KPM observation run proves 
 
 ### Prioritized next milestones
 
-1. Provide or integrate a compatible CCC encoder/API in the selected FlexRIC build.
-2. Run a non-dry-run RF test with an instrumented simulator and capture the complete chain: control encoding, E2 delivery, simulator acceptance, antenna-mask change, and subsequent KPM state report.
+1. Automate the short one-cell/one-UE smoke test and preserve its logs as regression evidence.
+2. Run malformed, empty, and wrong-length antenna-mask cases and verify unchanged RF state.
 3. Align the RF dashboard’s control-message panel with the actual transport state so dry-run, diagnostic, and live CCC results cannot be confused.
 4. Repeat the mapping-policy comparison with the deployed xApp consumers and document which policy is required for each KPI consumer.
-5. Automate the short one-cell/one-UE smoke test and preserve its logs as regression evidence.
 
 ## References
 

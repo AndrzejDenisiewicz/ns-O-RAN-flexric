@@ -9,7 +9,7 @@ The RF Channel Reconfiguration xApp uses the **E2 Service Model (E2SM) Cell Conf
 | **Service Model** | CCC v06.00 (Cell Configuration and Control) |
 | **Scenario File** | `scratch/RF_Reconfiguration.cc` |
 | **xApp Binary** | `rf_reconfiguration_xapp` |
-| **FlexRIC Branch** | `OIE-add-CCC` |
+| **FlexRIC Revision** | `fe338ade` or a compatible CCC-capable descendant |
 | **Reporting Used** | KPM v3.00 |
 
 ---
@@ -69,7 +69,7 @@ The **RF Channel Reconfiguration tab** in RIC-TaaP Studio provides a live view o
 
 Before running this xApp, make sure the following are in place:
 
-- [ ] FlexRIC built from the `OIE-add-CCC` branch (see build instructions below).
+- [ ] FlexRIC built from a revision containing `src/sm/ccc_sm` and native CCC control support (baseline `fe338ade`).
 - [ ] ns-O-RAN-flexric built (see [README §9.4](../README.md#94-ns-o-ran-flexric-installation)).
 - [ ] RIC-TaaP Studio deployed (see [README §9.5](../README.md#95-gui-deployment)).
 
@@ -77,7 +77,8 @@ Before running this xApp, make sure the following are in place:
 
 ```bash
 cd /path/to/flexric
-git checkout OIE-add-CCC
+git checkout fe338ade                 # or a compatible CCC-capable descendant
+test -d src/sm/ccc_sm
 cd build
 make -j8
 sudo make install
@@ -211,10 +212,13 @@ The decision engine can be configured without changing scenario inputs:
 - `RF_XAPP_NODE_INDEX` — restrict subscriptions to one discovered node index.
 - `RF_XAPP_TRANSPORT` — `kpm-first`, `native-ccc`, or `rc-compatibility`.
 
-`native-ccc` currently reports `native-ccc-unavailable` because this FlexRIC
-checkout has no CCC encoder/API. `rc-compatibility` reports that the typed
-intent was retained without claiming CCC fidelity; these diagnostics are the
-baseline for the transport-adapter evaluation.
+For the CCC-capable FlexRIC revision, the live-control invocation must set
+`RF_XAPP_TRANSPORT=native-ccc` and `RF_XAPP_DRY_RUN=0`. The xApp must send
+`SM_CCC_ID` using `control_sm_xapp_api()` with an `O-NESPolicy.antennaMask`
+payload, and the simulator must be started with `CCC_E2functionID=4`.
+The local `9946e79` checkout still reports `native-ccc-unavailable` because it
+has no CCC encoder/API; `rc-compatibility` retains typed intent without
+claiming CCC fidelity.
 
 ### Transport evaluation
 

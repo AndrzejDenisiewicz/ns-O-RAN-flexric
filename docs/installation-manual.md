@@ -25,11 +25,13 @@ decision → dry-run `antenna-state` intent).
 | └ ns-3 simulator (mmwave + 5G-LENA) | `https://github.com/AndrzejDenisiewicz/mmwave-LENA-oran.git` | `Integracja` | `40e7541` |
 | &nbsp;&nbsp;&nbsp;└ 5G-LENA NR module | `https://github.com/AndrzejDenisiewicz/ns3-oran-lena-nr.git` | `Integracja` | `1c4f3b7` |
 | &nbsp;&nbsp;&nbsp;└ ORAN interface module | `https://github.com/AndrzejDenisiewicz/oran-interface.git` | `Integracja` | `577c326` |
-| Near-RT RIC + xApps | `https://github.com/AndrzejDenisiewicz/flexric.git` | `dev` | `9946e79` |
+| Near-RT RIC + xApps | CCC-capable FlexRIC checkout | CCC-capable revision containing `src/sm/ccc_sm` (baseline `fe338ade`) | `fe338ade` or a compatible descendant |
 
 The parent repository pins the submodules to the exact commits above; a
-recursive clone reproduces the validated tree. `flexric` is a sibling
-checkout (not a submodule).
+recursive clone reproduces the validated tree. FlexRIC is a sibling checkout
+(not a submodule) and must be supplied separately at the CCC-capable revision.
+The old `9946e79` checkout is not sufficient because it does not contain
+`src/sm/ccc_sm` or the native CCC xApp control API.
 
 ## 2. System requirements
 
@@ -90,10 +92,12 @@ git checkout Integracja
 git submodule update --init --recursive
 cd "$TOP"
 
-# 2) FlexRIC (sibling checkout)
-git clone https://github.com/AndrzejDenisiewicz/flexric.git
+# 2) FlexRIC (sibling checkout; use a source repository that contains CCC)
+git clone <CCC-capable-FlexRIC-repository> flexric
 cd flexric
-git checkout dev
+git checkout fe338ade                 # or a compatible descendant
+test -d src/sm/ccc_sm
+test -f examples/xApp/c/orange/rf_reconfiguration_xapp.c
 cd "$TOP"
 ```
 
@@ -106,7 +110,8 @@ git -C ns-O-RAN-flexric/mmwave-LENA-oran rev-parse --short HEAD          # 40e75
 git -C ns-O-RAN-flexric/mmwave-LENA-oran/src/nr rev-parse --short HEAD          # 1c4f3b7
 git -C ns-O-RAN-flexric/mmwave-LENA-oran/contrib/oran-interface rev-parse --short HEAD          # 577c326
 git -C ns-O-RAN-flexric/e2sim-kpmv3 rev-parse --short HEAD          # 732d647
-git -C flexric rev-parse --short HEAD          # 9946e79
+git -C flexric rev-parse --short HEAD          # fe338ade (or compatible descendant)
+test -d flexric/src/sm/ccc_sm
 ```
 
 If any value differs, re-run `git submodule update --init --recursive` inside
